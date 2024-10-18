@@ -39,10 +39,24 @@ spec:
           spec:
             description: CertificateSpec defines the desired state of Certificate
             properties:
-              foo:
-                description: Foo is an example field of Certificate. Edit certificate_types.go
-                  to remove/update
+              dnsName:
+                description: |-
+                  Foo is an example field of Certificate. Edit certificate_types.go to remove/update
+                  Foo string `json:"foo,omitempty"`
                 type: string
+              secretRef:
+                properties:
+                  name:
+                    type: string
+                required:
+                - name
+                type: object
+              validity:
+                type: string
+            required:
+            - dnsName
+            - secretRef
+            - validity
             type: object
           status:
             description: CertificateStatus defines the observed state of Certificate

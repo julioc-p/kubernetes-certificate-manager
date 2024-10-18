@@ -29,7 +29,14 @@ type CertificateSpec struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// Foo is an example field of Certificate. Edit certificate_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// Foo string `json:"foo,omitempty"`
+	DnsName   string    `json:"dnsName"`
+	Validity  string    `json:"validity"`
+	SecretRef SecretRef `json:"secretRef"`
+}
+
+type SecretRef struct {
+	Name string `json:"name"`
 }
 
 // CertificateStatus defines the observed state of Certificate
