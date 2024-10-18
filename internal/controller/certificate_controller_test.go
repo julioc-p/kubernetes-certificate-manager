@@ -18,9 +18,11 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -31,6 +33,18 @@ import (
 )
 
 var _ = Describe("Certificate Controller", func() {
+	// Define utility constants for object names and testing timeouts/durations.
+	const (
+		CertificateName      = "test-certificate"
+		CertificateNamespace = "default"
+		DnsName              = "test-certificate.com"
+		Validity             = "360d"
+
+		timeout  = time.Second * 10
+		duration = time.Second * 10
+		interval = time.Millisecond * 250
+	)
+
 	Context("When reconciling a resource", func() {
 		const resourceName = "test-resource"
 
@@ -47,11 +61,21 @@ var _ = Describe("Certificate Controller", func() {
 			err := k8sClient.Get(ctx, typeNamespacedName, certificate)
 			if err != nil && errors.IsNotFound(err) {
 				resource := &certsk8ciov1.Certificate{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: "default",
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "certs.k8c.io/v1",
+						Kind:       "Certificate",
 					},
-					// TODO(user): Specify other spec details if needed.
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      CertificateName,
+						Namespace: CertificateNamespace,
+					},
+					Spec: certsk8ciov1.CertificateSpec{
+						DnsName:  DnsName,
+						Validity: Validity,
+						SecretRef: certsk8ciov1.SecretRef{
+							Name: "test-secret",
+						},
+					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}
@@ -59,13 +83,18 @@ var _ = Describe("Certificate Controller", func() {
 
 		AfterEach(func() {
 			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &certsk8ciov1.Certificate{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
+			certificateLookupKey := types.NamespacedName{Name: CertificateName, Namespace: CertificateNamespace}
+			createdCertificateResource := &certsk8ciov1.Certificate{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, certificateLookupKey, createdCertificateResource)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
 
 			By("Cleanup the specific resource instance Certificate")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, createdCertificateResource)).To(Succeed())
 		})
+
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")
 			controllerReconciler := &CertificateReconciler{
@@ -79,6 +108,112 @@ var _ = Describe("Certificate Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
 			// Example: If you expect a certain status condition after reconciliation, verify it here.
+		})
+
+		It("should create a secret with the certificate", func() {
+			By("Creating a new Certificate resource")
+
+			certificateLookupKey := types.NamespacedName{Name: CertificateName, Namespace: CertificateNamespace}
+			createdCertificateResource := &certsk8ciov1.Certificate{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, certificateLookupKey, createdCertificateResource)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			By("checking if the secret was created")
+			secretLookupKey := types.NamespacedName{Name: "test-secret", Namespace: CertificateNamespace}
+			createdSecret := &corev1.Secret{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, secretLookupKey, createdSecret)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			Expect(createdSecret.Type).Should(Equal(corev1.SecretTypeTLS))
+
+			Expect(createdSecret.Data).Should(HaveKey("tls.crt"))
+			Expect(createdSecret.Data).Should(HaveKey("tls.key"))
+
+		})
+
+		It("should create a new certificate when something changed", func() {
+			By("Creating a new Certificate resource")
+			resource := &certsk8ciov1.Certificate{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: "certs.k8c.io/v1",
+					Kind:       "Certificate",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      CertificateName,
+					Namespace: CertificateNamespace,
+				},
+				Spec: certsk8ciov1.CertificateSpec{
+					DnsName:  "new-dns-name.com",
+					Validity: Validity,
+					SecretRef: certsk8ciov1.SecretRef{
+						Name: "test-secret",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+
+			By("updating the Certificate resource")
+			createdCertificateResource := &certsk8ciov1.Certificate{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, typeNamespacedName, createdCertificateResource)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			createdCertificateResource.Spec.DnsName = "new-dns-name.com"
+
+		})
+
+		It("should delete the secret when the certificate is deleted", func() {
+			By("Creating a new Certificate resource")
+			resource := &certsk8ciov1.Certificate{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: "certs.k8c.io/v1",
+					Kind:       "Certificate",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "certificate-to-delete",
+					Namespace: CertificateNamespace,
+				},
+				Spec: certsk8ciov1.CertificateSpec{
+					DnsName:  "new-dns-name.com",
+					Validity: Validity,
+					SecretRef: certsk8ciov1.SecretRef{
+						Name: "test-secret2",
+					},
+				},
+			}
+
+			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+			certificateLookupKey := types.NamespacedName{Name: "certificate-to-delete", Namespace: CertificateNamespace}
+			createdCertificateResource := &certsk8ciov1.Certificate{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, certificateLookupKey, createdCertificateResource)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			By("checking if the secret was created")
+			secretLookupKey := types.NamespacedName{Name: "test-secret2}", Namespace: CertificateNamespace}
+			createdSecret := &corev1.Secret{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, secretLookupKey, createdSecret)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			By("deleting the Certificate resource")
+			Expect(k8sClient.Delete(ctx, createdCertificateResource)).To(Succeed())
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, secretLookupKey, createdSecret)
+				return errors.IsNotFound(err)
+			}).Should(BeTrue())
+
 		})
 	})
 })
