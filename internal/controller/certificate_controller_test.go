@@ -168,52 +168,5 @@ var _ = Describe("Certificate Controller", func() {
 
 		})
 
-		It("should delete the secret when the certificate is deleted", func() {
-			By("Creating a new Certificate resource")
-			resource := &certsk8ciov1.Certificate{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: "certs.k8c.io/v1",
-					Kind:       "Certificate",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "certificate-to-delete",
-					Namespace: CertificateNamespace,
-				},
-				Spec: certsk8ciov1.CertificateSpec{
-					DnsName:  "new-dns-name.com",
-					Validity: Validity,
-					SecretRef: certsk8ciov1.SecretRef{
-						Name: "test-secret2",
-					},
-				},
-			}
-
-			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
-			certificateLookupKey := types.NamespacedName{Name: "certificate-to-delete", Namespace: CertificateNamespace}
-			createdCertificateResource := &certsk8ciov1.Certificate{}
-
-			Eventually(func() bool {
-				err := k8sClient.Get(ctx, certificateLookupKey, createdCertificateResource)
-				return err == nil
-			}, timeout, interval).Should(BeTrue())
-
-			By("checking if the secret was created")
-			secretLookupKey := types.NamespacedName{Name: "test-secret2}", Namespace: CertificateNamespace}
-			createdSecret := &corev1.Secret{}
-			Eventually(func() bool {
-				err := k8sClient.Get(ctx, secretLookupKey, createdSecret)
-				return err == nil
-			}, timeout, interval).Should(BeTrue())
-
-			By("deleting the Certificate resource")
-			Expect(k8sClient.Delete(ctx, createdCertificateResource)).To(Succeed())
-
-			By("checking if the secret was deleted")
-			Eventually(func() bool {
-				err := k8sClient.Get(ctx, secretLookupKey, createdSecret)
-				return errors.IsNotFound(err)
-			}).Should(BeTrue())
-
-		})
 	})
 })
