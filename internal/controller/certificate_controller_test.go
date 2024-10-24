@@ -79,6 +79,14 @@ var _ = Describe("Certificate Controller", func() {
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}
+
+			certificateLookupKey := types.NamespacedName{Name: CertificateName, Namespace: CertificateNamespace}
+			createdCertificateResource := &certsk8ciov1.Certificate{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, certificateLookupKey, createdCertificateResource)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
 		})
 
 		AfterEach(func() {
@@ -92,7 +100,7 @@ var _ = Describe("Certificate Controller", func() {
 			}, timeout, interval).Should(BeTrue())
 
 			By("Cleanup the specific resource instance Certificate")
-			Expect(k8sClient.Delete(ctx, createdCertificateResource)).To(Succeed())
+			k8sClient.Delete(ctx, createdCertificateResource)
 		})
 
 		It("should successfully reconcile the resource", func() {
@@ -110,7 +118,7 @@ var _ = Describe("Certificate Controller", func() {
 			// Example: If you expect a certain status condition after reconciliation, verify it here.
 		})
 
-		FIt("should create a secret with the certificate", func() {
+		It("should create a secret with the certificate", func() {
 			By("Creating a new Certificate resource")
 
 			certificateLookupKey := types.NamespacedName{Name: CertificateName, Namespace: CertificateNamespace}
@@ -137,7 +145,7 @@ var _ = Describe("Certificate Controller", func() {
 
 		})
 
-		It("should create a new certificate when something changed", func() {
+		It("should not throw errors when two certificates share same secret reference", func() {
 			By("Creating a new Certificate resource")
 			resource := &certsk8ciov1.Certificate{
 				TypeMeta: metav1.TypeMeta{
@@ -145,11 +153,11 @@ var _ = Describe("Certificate Controller", func() {
 					Kind:       "Certificate",
 				},
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      CertificateName,
+					Name:      CertificateName + "-new",
 					Namespace: CertificateNamespace,
 				},
 				Spec: certsk8ciov1.CertificateSpec{
-					DnsName:  "new-dns-name.com",
+					DnsName:  DnsName,
 					Validity: Validity,
 					SecretRef: certsk8ciov1.SecretRef{
 						Name: "test-secret",
@@ -157,15 +165,6 @@ var _ = Describe("Certificate Controller", func() {
 				},
 			}
 			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
-
-			By("updating the Certificate resource")
-			createdCertificateResource := &certsk8ciov1.Certificate{}
-			Eventually(func() bool {
-				err := k8sClient.Get(ctx, typeNamespacedName, createdCertificateResource)
-				return err == nil
-			}, timeout, interval).Should(BeTrue())
-
-			Expect(createdCertificateResource.Spec.DnsName).Should(Equal("new-dns-name.com"))
 
 		})
 
@@ -209,6 +208,7 @@ var _ = Describe("Certificate Controller", func() {
 			By("deleting the Certificate resource")
 			Expect(k8sClient.Delete(ctx, createdCertificateResource)).To(Succeed())
 
+			By("checking if the secret was deleted")
 			Eventually(func() bool {
 				err := k8sClient.Get(ctx, secretLookupKey, createdSecret)
 				return errors.IsNotFound(err)

@@ -65,41 +65,69 @@ func (r *CertificateReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// check if secret exists
 	secretName := cert.Spec.SecretRef.Name
 	secret := &v1.Secret{}
-	if err := r.Get(ctx, client.ObjectKey{Namespace: "default", Name: secretName}, secret); err != nil {
-		err := createSecret(r, ctx, secretName, cert.Spec.DnsName, cert.Spec.Validity)
-		log.Error(err, "unable to create secret")
+	err := r.Get(ctx, client.ObjectKey{Namespace: req.Namespace, Name: secretName}, secret)
+	if err == nil {
+		r.Delete(ctx, secret)
+	}
+
+	errorSecretCreation := createSecret(r, ctx, secretName, cert.Spec.DnsName, cert.Spec.Validity, req.Namespace)
+	if errorSecretCreation != nil {
+		log.Error(errorSecretCreation, "unable to create secret")
+		return ctrl.Result{}, errorSecretCreation
 	}
 
 	return ctrl.Result{}, nil
 }
 
-func createSecret(r *CertificateReconciler, ctx context.Context, secretName string, dnsName string, validity string) error {
+func createSecret(r *CertificateReconciler, ctx context.Context, secretName string, dnsName string, validity string, namespace string) error {
 	// Parse the validity and generate the certificate
 	t, err := parseValidity(validity)
 	if err != nil {
 		return err
 	}
 
-	certificateTemplate := x509.Certificate{
-		DNSNames:     []string{dnsName},
-		NotAfter:     time.Now().Add(t),
-		SerialNumber: big.NewInt(2024),
-	}
+	certificateTemplate := createCertificateTemplate(dnsName, t)
 
 	// Generate public and private key
-	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	priv, pub, err := generateKeyPair()
 	if err != nil {
 		return err
 	}
-	pub := &priv.PublicKey
 
 	// Create a self-signed certificate
-	certDER, err := x509.CreateCertificate(rand.Reader, &certificateTemplate, &certificateTemplate, pub, priv)
+	certPEM, privPEM, err := createSelfSignedCert(certificateTemplate, priv, pub)
 	if err != nil {
 		return err
+	}
+
+	// Create a Kubernetes secret object
+	secret := createK8sSecret(secretName, namespace, certPEM, privPEM)
+
+	return r.Client.Create(ctx, secret)
+}
+
+func createCertificateTemplate(dnsName string, validity time.Duration) x509.Certificate {
+	return x509.Certificate{
+		DNSNames:     []string{dnsName},
+		NotAfter:     time.Now().Add(validity),
+		SerialNumber: big.NewInt(2024),
+	}
+}
+
+func generateKeyPair() (*rsa.PrivateKey, *rsa.PublicKey, error) {
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, nil, err
+	}
+	return priv, &priv.PublicKey, nil
+}
+
+func createSelfSignedCert(template x509.Certificate, priv *rsa.PrivateKey, pub *rsa.PublicKey) ([]byte, []byte, error) {
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, pub, priv)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	// Convert private key to PEM format
@@ -114,11 +142,14 @@ func createSecret(r *CertificateReconciler, ctx context.Context, secretName stri
 		Bytes: certDER,
 	})
 
-	// Create a Kubernetes secret object
-	secret := &v1.Secret{
+	return certPEM, privPEM, nil
+}
+
+func createK8sSecret(secretName, namespace string, certPEM, privPEM []byte) *v1.Secret {
+	return &v1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      secretName,
-			Namespace: "default",
+			Namespace: namespace,
 		},
 		Type: v1.SecretTypeTLS,
 		Data: map[string][]byte{
@@ -126,13 +157,6 @@ func createSecret(r *CertificateReconciler, ctx context.Context, secretName stri
 			"tls.key": privPEM, // Private key
 		},
 	}
-
-	errorS := r.Client.Create(ctx, secret)
-	if errorS != nil {
-		return errorS
-	}
-
-	return nil
 }
 
 func parseValidity(validity string) (time.Duration, error) {
