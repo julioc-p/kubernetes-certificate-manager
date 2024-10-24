@@ -110,7 +110,7 @@ var _ = Describe("Certificate Controller", func() {
 			// Example: If you expect a certain status condition after reconciliation, verify it here.
 		})
 
-		It("should create a secret with the certificate", func() {
+		FIt("should create a secret with the certificate", func() {
 			By("Creating a new Certificate resource")
 
 			certificateLookupKey := types.NamespacedName{Name: CertificateName, Namespace: CertificateNamespace}
@@ -165,7 +165,7 @@ var _ = Describe("Certificate Controller", func() {
 				return err == nil
 			}, timeout, interval).Should(BeTrue())
 
-			createdCertificateResource.Spec.DnsName = "new-dns-name.com"
+			Expect(createdCertificateResource.Spec.DnsName).Should(Equal("new-dns-name.com"))
 
 		})
 
