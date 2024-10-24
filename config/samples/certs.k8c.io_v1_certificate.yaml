@@ -1,9 +1,6 @@
 apiVersion: certs.k8c.io.certs.k8c.io/v1
 kind: Certificate
 metadata:
-  labels:
-    app.kubernetes.io/name: kubernetes-certificate-manager
-    app.kubernetes.io/managed-by: kustomize
   name: certificate-sample
   namespace: default
 spec:
