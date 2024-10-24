@@ -5,5 +5,12 @@ metadata:
     app.kubernetes.io/name: kubernetes-certificate-manager
     app.kubernetes.io/managed-by: kustomize
   name: certificate-sample
+  namespace: default
 spec:
-  # TODO(user): Add fields here
+  # the DNS name for which the certificate should be issued
+  dnsName: example.k8c.io
+  # the time until the certificate expires
+  validity: 360d
+  # a reference to the Secret object in which the certificate is stored
+  secretRef:
+    name: my-certificate-secret
